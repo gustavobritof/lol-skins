@@ -5,10 +5,6 @@ import { auth, provider, db } from "./firebase";
 import { Login } from "./components/Login";
 import { Home } from "./components/Home";
 
-const DATA_DRAGON_VERSION = "14.2.1";
-const CHAMPION_LIST_URL = `https://ddragon.leagueoflegends.com/cdn/${DATA_DRAGON_VERSION}/data/pt_BR/champion.json`;
-const CHAMPION_IMAGE_URL = (id) =>
-  `https://ddragon.leagueoflegends.com/cdn/${DATA_DRAGON_VERSION}/img/champion/${id}.png`;
 
 const TAG_TO_LANE = {
   Mage: "Mid",
@@ -59,18 +55,41 @@ export default function App() {
     return () => unsub();
   }, []);
 
+
   useEffect(() => {
+    let cancelled = false;
+
     async function loadChampions() {
       try {
         setChampionsLoading(true);
         setChampionsError("");
 
-        const response = await fetch(CHAMPION_LIST_URL);
+        const versionsResponse = await fetch(
+          "https://ddragon.leagueoflegends.com/api/versions.json"
+        );
+
+        if (!versionsResponse.ok) {
+          throw new Error("Não foi possível carregar a versão do Data Dragon.");
+        }
+
+        const versions = await versionsResponse.json();
+        const latestVersion = versions[0];
+
+        if (!latestVersion) {
+          throw new Error("Nenhuma versão do Data Dragon encontrada.");
+        }
+
+        const championListUrl =
+          `https://ddragon.leagueoflegends.com/cdn/${latestVersion}/data/pt_BR/champion.json`;
+
+        const response = await fetch(championListUrl);
+
         if (!response.ok) {
           throw new Error("Não foi possível carregar os campeões.");
         }
 
         const data = await response.json();
+
         const list = Object.values(data.data).map((champion) => {
           const lanes = champion.tags
             .map((tag) => TAG_TO_LANE[tag])
@@ -79,22 +98,37 @@ export default function App() {
           return {
             id: champion.id,
             name: champion.name,
-            image: CHAMPION_IMAGE_URL(champion.id),
+            image:
+              `https://ddragon.leagueoflegends.com/cdn/${latestVersion}/img/champion/${champion.id}.png`,
             lanes: [...new Set(lanes)],
           };
         });
 
-        setChampions(list);
+        if (!cancelled) {
+          setChampions(list);
+        }
       } catch (error) {
-        console.error(error);
-        setChampionsError("Ocorreu um erro ao carregar a lista de campeões.");
+        console.error("Erro ao carregar campeões:", error);
+
+        if (!cancelled) {
+          setChampionsError(
+            "Ocorreu um erro ao carregar a lista de campeões."
+          );
+        }
       } finally {
-        setChampionsLoading(false);
+        if (!cancelled) {
+          setChampionsLoading(false);
+        }
       }
     }
 
     loadChampions();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
 
   async function toggleChampion(id) {
     const updated = { ...owned, [id]: !owned[id] };
